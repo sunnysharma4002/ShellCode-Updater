@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>ARM32 Full Updater</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #090b10;
+    color: #edf1f7;
+    font-family: Segoe UI, Arial, sans-serif;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 35px auto;
+    padding: 20px;
+}
+
+.card {
+    background: #11151d;
+    border: 1px solid #292f3b;
+    border-radius: 18px;
+    padding: 28px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.45);
+}
+
+h1 {
+    margin: 0 0 7px;
+}
+
+.subtitle {
+    color: #929bab;
+    margin-bottom: 25px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.full {
+    grid-column: 1 / -1;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+label {
+    color: #aeb6c5;
+    font-size: 13px;
+}
+
+input {
+    width: 100%;
+    padding: 13px;
+    border-radius: 10px;
+    border: 1px solid #303745;
+    background: #090c12;
+    color: white;
+    font-size: 15px;
+}
+
+input:focus {
+    outline: none;
+    border-color: #7380ff;
+}
+
+.actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+
+button {
+    padding: 12px 17px;
+    border: 0;
+    border-radius: 10px;
+    background: #6976ff;
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+button.secondary {
+    background: #272e3b;
+}
+
+#status {
+    margin-top: 14px;
+    min-height: 20px;
+}
+
+.result {
+    display: none;
+    margin-top: 25px;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+}
+
+.stat {
+    background: #090c12;
+    border: 1px solid #282e39;
+    border-radius: 10px;
+    padding: 13px;
+}
+
+.stat small {
+    display: block;
+    color: #818b9d;
+    margin-bottom: 5px;
+}
+
+h2 {
+    font-size: 16px;
+    margin: 24px 0 9px;
+}
+
+pre {
+    margin: 0;
+    background: #080a0e;
+    border: 1px solid #252b35;
+    border-radius: 11px;
+    padding: 16px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.55;
+    color: #d9dfeb;
+}
+
+.filename-output {
+    border-color: #3b4660;
+}
+
+@media (max-width: 750px) {
+    .grid,
+    .stats {
+        grid-template-columns: 1fr;
+    }
+
+    .full {
+        grid-column: auto;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<div class="card">
+
+<h1>🧩 ARM32 Full Updater</h1>
+
+<div class="subtitle">
+Generate the calculated ARM32 byte structure and filename bytes.
+</div>
+
+<div class="grid">
+
+<div class="field">
+<label>dlopen address</label>
+<input id="dlopen" placeholder="0x349A2AC">
+</div>
+
+<div class="field">
+<label>case10 address</label>
+<input id="case10" placeholder="0x42E4D04">
+</div>
+
+<div class="field full">
+<label>Shell / library filename</label>
+<input id="filename" value="libvischk.so" placeholder="libexample.so">
+</div>
+
+</div>
+
+<div class="actions">
+
+<button onclick="generateOutput()">
+Generate Full Output
+</button>
+
+<button class="secondary" onclick="copyCpp()">
+Copy C++ BYTE Array
+</button>
+
+<button class="secondary" onclick="copyFilenameBytes()">
+Copy Filename Bytes
+</button>
+
+<button class="secondary" onclick="downloadCpp()">
+Download .cpp
+</button>
+
+<button class="secondary" onclick="clearOutput()">
+Clear
+</button>
+
+</div>
+
+<div id="status"></div>
+
+<div class="result" id="result">
+
+<div class="stats">
+
+<div class="stat">
+<small>BL location</small>
+<b id="blAddress">-</b>
+</div>
+
+<div class="stat">
+<small>PC</small>
+<b id="pc">-</b>
+</div>
+
+<div class="stat">
+<small>Opcode</small>
+<b id="opcode">-</b>
+</div>
+
+<div class="stat">
+<small>Payload</small>
+<b id="payloadLength">-</b>
+</div>
+
+</div>
+
+<h2>Generated C++ BYTE array</h2>
+<pre id="cppArray"></pre>
+
+<h2>Generated BL bytes</h2>
+<pre id="blBytes"></pre>
+
+<h2>Filename bytes</h2>
+
+<!-- FIXED: this element now has the exact ID used by JavaScript -->
+<pre id="filenameBytes" class="filename-output"></pre>
+
+<h2>Complete byte buffer</h2>
+<pre id="completeBytes"></pre>
+
+</div>
+
+</div>
+</div>
+
+<script>
+
+let resultData = null;
+
+function getInputData() {
+    return {
+        dlopen: document.getElementById("dlopen").value,
+        case10: document.getElementById("case10").value,
+        filename: document.getElementById("filename").value
+    };
+}
+
+async function generateOutput() {
+
+    const status = document.getElementById("status");
+
+    status.textContent = "";
+
+    try {
+
+        const response = await fetch("/generate", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(getInputData())
+        });
+
+        const data = await response.json();
+
+        if (!data.ok) {
+            throw new Error(data.error);
+        }
+
+        resultData = data;
+
+        document.getElementById("result").style.display = "block";
+
+        document.getElementById("blAddress").textContent =
+            data.bl_address;
+
+        document.getElementById("pc").textContent =
+            data.pc;
+
+        document.getElementById("opcode").textContent =
+            data.opcode;
+
+        document.getElementById("payloadLength").textContent =
+            data.payload_length + " bytes";
+
+        document.getElementById("cppArray").textContent =
+            data.cpp_array;
+
+        document.getElementById("blBytes").textContent =
+            data.bl_bytes;
+
+        /*
+         * FIX:
+         * Explicitly display the filename byte string returned by Flask.
+         */
+        document.getElementById("filenameBytes").textContent =
+            data.filename_bytes;
+
+        document.getElementById("completeBytes").textContent =
+            data.complete_bytes;
+
+        status.textContent = "✓ Generated successfully.";
+        status.style.color = "#7ee2a8";
+
+    } catch (error) {
+
+        status.textContent = "❌ " + error.message;
+        status.style.color = "#ff9292";
+    }
+}
+
+async function copyCpp() {
+
+    if (!resultData) {
+        await generateOutput();
+
+        if (!resultData) {
+            return;
+        }
+    }
+
+    await navigator.clipboard.writeText(
+        resultData.cpp_array
+    );
+
+    document.getElementById("status").textContent =
+        "✓ C++ BYTE array copied.";
+
+    document.getElementById("status").style.color =
+        "#7ee2a8";
+}
+
+async function copyFilenameBytes() {
+
+    if (!resultData) {
+        await generateOutput();
+
+        if (!resultData) {
+            return;
+        }
+    }
+
+    await navigator.clipboard.writeText(
+        resultData.filename_bytes
+    );
+
+    document.getElementById("status").textContent =
+        "✓ Filename bytes copied.";
+
+    document.getElementById("status").style.color =
+        "#7ee2a8";
+}
+
+async function downloadCpp() {
+
+    try {
+
+        const response = await fetch("/download", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(getInputData())
+        });
+
+        if (!response.ok) {
+
+            const data = await response.json();
+
+            throw new Error(data.error);
+        }
+
+        const blob = await response.blob();
+
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+
+        link.href = url;
+        link.download = "generated_bytes.cpp";
+
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        URL.revokeObjectURL(url);
+
+        document.getElementById("status").textContent =
+            "✓ generated_bytes.cpp downloaded.";
+
+        document.getElementById("status").style.color =
+            "#7ee2a8";
+
+    } catch (error) {
+
+        document.getElementById("status").textContent =
+            "❌ " + error.message;
+
+        document.getElementById("status").style.color =
+            "#ff9292";
+    }
+}
+
+function clearOutput() {
+
+    document.getElementById("dlopen").value = "";
+    document.getElementById("case10").value = "";
+    document.getElementById("filename").value = "libvischk.so";
+
+    document.getElementById("result").style.display = "none";
+
+    document.getElementById("status").textContent = "";
+
+    resultData = null;
+}
+
+</script>
+
+</body>
+</html>
